@@ -3,14 +3,88 @@
 import gzip
 from pathlib import Path
 from typing import Dict, List, Optional, TextIO, Union
+from datetime import datetime
+
+DATA_PATH = Path(__file__).parent / 'data' / 'cedict_1_0_ts_utf-8_mdbg.txt.gz'
+TMP_PATH = Path(__file__).parent / 'data' / 'tmp-cedict_1_0_ts_utf-8_mdbg.txt.gz' # Uses for updating data
+DATA_URL = r"https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdbg.txt.gz"
 
 class CcCedict:
     """CC-CEDICT."""
 
     def __init__(self) -> None:
-        path = Path(__file__).parent / 'data' / 'cedict_1_0_ts_utf-8_mdbg.txt.gz'
+        path = DATA_PATH
+        self._data_datetime = None
+        
         with gzip.open(path, mode='rt', encoding='utf-8') as file:
             self._parse_file(file)
+
+    def get_data_datetime(self) -> datetime:
+        """Gets the definition data file datetime.
+        """
+        return self._data_datetime
+
+    def get_data_days_old(self) -> int:
+        """Gets how many day old is the definition data file.
+        
+            This can be used to decide if an update is due and call update_cedict()
+        """
+        
+        if not self._data_datetime: # Data date not obtained
+             raise ValueError("Data datetime is not set.")
+            
+        # Get the current date
+        current_date = datetime.utcnow()
+        
+        # Calculate the difference in years
+        difference = current_date - self._data_datetime 
+        
+        # Check if the difference is one year or more
+        return difference.days
+
+    def update_cedict(self) -> bool:
+        """
+        Downloads the CEDICT file to a temporary file. If successful, overwrites the old datafile.
+
+        Returns:
+            bool: True if the file is successfully downloaded and moved, False otherwise.
+        """
+
+        # Imports here not to litters normal uses of packages
+        import requests
+        from pathlib import Path
+        import shutil
+
+        try:
+            # Download the file to the temporary directory
+            print(f"Downloading file from {DATA_URL} to {TMP_PATH}...")
+            response = requests.get(DATA_URL, stream=True)
+            response.raise_for_status()  # Raise an HTTPError for bad responses (4xx and 5xx)
+
+            with open(TMP_PATH, 'wb') as file:
+                for chunk in response.iter_content(chunk_size=8192):
+                    file.write(chunk)
+
+            print("Download succeeded. Moving file to data directory...")
+
+            # Move the file to the data directory
+            shutil.move(TMP_PATH, DATA_PATH)
+            print(f"Data successfully updated to {DATA_PATH}")
+
+            return True
+        except requests.RequestException as e:
+            print(f"Error downloading the file: {e}")
+        except IOError as e:
+            print(f"Error moving the file: {e}")
+
+        # Clean up temporary file if it exists
+        if TMP_PATH.exists():
+            try:
+                TMP_PATH.unlink()
+            except Exception as e:
+                print(f"Error cleaning up temporary file: {e}")
+
+        return False
 
     def get_definitions(self, chinese: str) -> Optional[List]:
         """Gets definitions."""
@@ -78,6 +152,11 @@ class CcCedict:
     def _parse_line(self, line: str) -> Optional[Dict]:
         # Skip comments.
         if line.startswith('#'):
+            DATE_TAG = "#! date="
+            
+            if line.startswith(DATE_TAG): # Example "#! date=2024-11-18T23:06:27Z"
+                self._data_datetime = datetime.strptime(line[len(DATE_TAG):].strip(), "%Y-%m-%dT%H:%M:%SZ")                
+                
             return None
 
         # Strip whitespace and trailing slash.
