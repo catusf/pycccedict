@@ -9,7 +9,7 @@ class CcCedict:
 
     def __init__(self) -> None:
         path = Path(__file__).parent / 'data' / 'cedict_1_0_ts_utf-8_mdbg.txt.gz'
-        with gzip.open(path, mode='rt') as file:
+        with gzip.open(path, mode='rt', encoding='utf-8') as file:
             self._parse_file(file)
 
     def get_definitions(self, chinese: str) -> Optional[List]:
